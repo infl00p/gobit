@@ -3,7 +3,7 @@ SHELL := /bin/bash
 TARGET := $(shell echo $${PWD##*/})
 .DEFAULT_GOAL: $(TARGET)
 
-VERSION := 0.1
+VERSION := 0.2
 BUILD := `git rev-parse HEAD`
 CGO_ENABLED=0
 
@@ -27,4 +27,4 @@ strip:
 	@strip $(TARGET)
 
 run:
-	@go run main.go
+	@go run .
