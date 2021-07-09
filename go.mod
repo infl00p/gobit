@@ -1,4 +1,4 @@
-module git.zen/Infl00p_Labs/gobit
+module github.com/infl00p/gobit
 
 go 1.16
 
