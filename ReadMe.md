@@ -1,19 +1,19 @@
 # Binance Intelligence terminal
 
-Warning: The app is still on alpha stage.
+Warning: The app is still on alpha stage
 
 Intro
 ---
 gobit is a TUI application to interface with Binance, using an undocumented
-and public Websocket API and fetch abnormal events, like large trades (Buy and
-Sells over 30k USD) large price changes and large volume changes.
+and public Websocket API to fetch abnormal events, like large trades (Buy and
+Sells over 30k USD - no longer working) large price changes and large volume changes.
 
 These information can be useful for a small trader that wants to monitor what
 the whales are doing or wants to catch pump or dump events (sudden rise or fall).
 
-Additionally the user has the option to subscribe to the aggragated trade feed of
+Additionally the user has the option to subscribe to the aggregated trade feed of
 pairs, to monitor large maker or taker trades. This feature uses the documented
-websocket API and can be quite
+websocket API and can be quite resource intensive.
 
 The application fetches events and writes them in a sqlite database file inside
 the user os cache directory. Additionally logging is enabled by default and all
@@ -29,6 +29,8 @@ destination the market is heading. The Popularity widget is a ranking of the
 most traded assets (not pair) by whales, during the last period (by default 10
 minutes). The details widget displays additional information when a pair symbol
 is selected (using Enter key).
+
+See gobit-scr.png for a screen shot of the TUI in action.
 
 Key shortcuts
 ---
@@ -56,10 +58,11 @@ web page in your browser
 Config file
 ---
 Configuration is stored on your os configuration directory usually as config.json
-See main.go source file for an example config file
+See internal/config/config.go source file for an example config file
 
 News
 ---
+- Binance has permanently disabled the Large Trade feeds on this API
 - As of 2021-07-08 Binance has restored Large Trade feed on this API
 - As of 2021-06-08 Binance has muted Large Trades on this API
 
@@ -73,7 +76,7 @@ Donations/Tips
 
 License
 ---
-    Copyright (C) <2021>  <infl00p Labs>
+    Copyright (C) <2021-2023>  <infl00p Labs>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

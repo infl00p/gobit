@@ -1,6 +1,6 @@
 /*
 	Binance Intelligence Terminal in Go
-    Copyright (C) <2021> <infl00p Labs>
+    Copyright (C) <2021-2023> <infl00p Labs>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,11 +17,15 @@
 
 */
 
-package main
+package ui
 
 import (
 	"database/sql"
 	"fmt"
+	"gobit/internal/binance"
+	. "gobit/internal/config"
+	"gobit/internal/data"
+	"gobit/internal/util"
 	"math"
 	"strconv"
 	"strings"
@@ -30,14 +34,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/pkg/browser"
 	"github.com/rivo/tview"
 )
 
 // InitLiveFeed ui element init
-func InitLiveFeed() (*tview.Table) {
+func InitLiveFeed() *tview.Table {
 	livefeed := tview.NewTable().
-		SetBorders(false).
 		SetSeparator(tview.Borders.Vertical).
 		SetBordersColor(tcell.ColorGray)
 	livefeed.SetBorder(true).SetTitle("Live Feed").
@@ -48,7 +50,7 @@ func InitLiveFeed() (*tview.Table) {
 }
 
 // InitTrendBar ui element init
-func InitTrendBar() (*tview.TextView) {
+func InitTrendBar() *tview.TextView {
 	trendbar := tview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(false)
@@ -62,11 +64,11 @@ func InitTrendBar() (*tview.TextView) {
 }
 
 // InitMomentumTable ui element init
-func InitMomentumTable() (*tview.TextView) {
+func InitMomentumTable() *tview.TextView {
 	momentumtable := tview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(false)
-	momentumtable.SetBorder(true).SetTitle("Popularity (" + conf.Db.SamplePeriod + ")").
+	momentumtable.SetBorder(true).SetTitle("Popularity (" + Conf.Db.SamplePeriod + ")").
 		SetTitleAlign(tview.AlignLeft).
 		SetBorderAttributes(tcell.AttrDim)
 	momentumtable.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
@@ -76,11 +78,11 @@ func InitMomentumTable() (*tview.TextView) {
 }
 
 // InitDetailsTable ui element init
-func InitDetailsTable() (*tview.TextView) {
+func InitDetailsTable() *tview.TextView {
 	detailstable := tview.NewTextView().
 		SetDynamicColors(true).
 		SetRegions(false)
-	detailstable.SetBorder(true).SetTitle("Details (" + conf.TickerTimer.String() + ")").
+	detailstable.SetBorder(true).SetTitle("Details (" + Conf.TickerTimer.String() + ")").
 		SetTitleAlign(tview.AlignLeft).
 		SetBorderAttributes(tcell.AttrDim)
 	detailstable.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
@@ -90,7 +92,7 @@ func InitDetailsTable() (*tview.TextView) {
 }
 
 // PrintMomentumTable function to build the asset momentum table
-func PrintMomentumTable(tablewidth int, assetstats []AssetStat) string {
+func PrintMomentumTable(tablewidth int, assetstats []data.AssetStat) string {
 	bargraph := ""
 	volumeavg := ""
 	var maxmomentum float64
@@ -152,13 +154,13 @@ func PrintMomentumTable(tablewidth int, assetstats []AssetStat) string {
 }
 
 // UpdateTrendBar - prints the trend bar
-func UpdateTrendBar(width int, tradestats *TradeStat) string {
+func UpdateTrendBar(width int, tradestats *data.TradeStat) string {
 	var redboxes, greenboxes string
 
 	// Calculate cells based on rounded percentage
 	if tradestats.Maker == 0 || tradestats.Taker == 0 || tradestats.Number == 0 {
 	} else {
-		trendpercent := tradestats.Maker / (tradestats.Taker+tradestats.Maker)
+		trendpercent := tradestats.Maker / (tradestats.Taker + tradestats.Maker)
 		if width > 3 {
 			leftpadding := 1
 			rightpadding := 2
@@ -174,11 +176,11 @@ func UpdateTrendBar(width int, tradestats *TradeStat) string {
 				rightpadding = 0
 			}
 
-			redcount=width-count-rightpadding
+			redcount = width - count - rightpadding
 			if redcount < 0 {
-				redcount=0
+				redcount = 0
 			}
-			greencount=count-leftpadding
+			greencount = count - leftpadding
 			greenboxes = strings.Repeat("▓", greencount)
 			redboxes = strings.Repeat("▓", redcount)
 
@@ -193,7 +195,7 @@ func UpdateTrendBar(width int, tradestats *TradeStat) string {
 }
 
 // UpdateDetailTable - Prints the detail table based on the input symbol pair
-func UpdateDetailTable(symbol string, detail *tview.TextView, stats map[string]Ticker) {
+func UpdateDetailTable(symbol string, detail *tview.TextView, stats map[string]binance.Ticker) {
 	name := strings.Replace(symbol, "/", "", 1)
 	price := stats[name].LastPrice
 	volume := stats[name].Volume
@@ -258,7 +260,7 @@ func printeventheader(t *tview.Table) {
 }
 
 // PrintEvent - Prints and builds a new event in the event table
-func PrintEvent(t *tview.Table, stats map[string]Ticker, ev Event, db *sql.DB) {
+func PrintEvent(t *tview.Table, stats map[string]binance.Ticker, ev binance.Event, db *sql.DB) {
 	var notice, symbol, period, value string
 	var color tcell.Style
 	//volfreq := ""
@@ -267,7 +269,7 @@ func PrintEvent(t *tview.Table, stats map[string]Ticker, ev Event, db *sql.DB) {
 	lastprice := stats[ev.Data.Symbol].LastPrice
 	pricechange := stats[ev.Data.Symbol].PriceChangePercent24h
 	if lastprice == 0 || pricechange == 0 {
-		stats[ev.Data.Symbol] = GetSymbolTicker(ev.Data.Symbol)
+		stats[ev.Data.Symbol] = binance.GetSymbolTicker(ev.Data.Symbol)
 		lastprice = stats[ev.Data.Symbol].LastPrice
 		pricechange = stats[ev.Data.Symbol].PriceChangePercent24h
 	}
@@ -384,10 +386,10 @@ func PrintEvent(t *tview.Table, stats map[string]Ticker, ev Event, db *sql.DB) {
 		SetStyle(color).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(true)
-	if conf.EnableMouse {
+	if Conf.EnableMouse {
 		cell.SetClickedFunc(func() bool {
 			asset := strings.Replace(symbol, "/", "_", 1)
-			browser.OpenURL(conf.BinanceTerminal + asset)
+			util.ShowWebTrade(asset)
 			return false
 		})
 	}
@@ -419,23 +421,23 @@ func PrintEvent(t *tview.Table, stats map[string]Ticker, ev Event, db *sql.DB) {
 }
 
 // PrintTrade - Prints and builds a new trade in the event table
-func PrintTrade(t *tview.Table, stats map[string]Ticker, info map[string]Symbol, tr Trade, db *sql.DB) {
+func PrintTrade(t *tview.Table, stats map[string]binance.Ticker, info map[string]data.Symbol, tr binance.Trade, db *sql.DB) {
 	var notice, symbol, period, value, price string
 	var color tcell.Style
 	percent := ""
 
 	pricechange := stats[tr.Data.Symbol].PriceChangePercent24h
 	if pricechange == 0 {
-		stats[tr.Data.Symbol] = GetSymbolTicker(tr.Data.Symbol)
+		stats[tr.Data.Symbol] = binance.GetSymbolTicker(tr.Data.Symbol)
 		pricechange = stats[tr.Data.Symbol].PriceChangePercent24h
 	}
 	change := fmt.Sprintf("%v %%", strconv.FormatFloat(pricechange, 'f', 2, 64))
-	symbol = info[tr.Data.Symbol].BaseAsset+"/"+info[tr.Data.Symbol].QuoteAsset
+	symbol = info[tr.Data.Symbol].BaseAsset + "/" + info[tr.Data.Symbol].QuoteAsset
 
 	switch tr.Data.EventType {
 	case "aggTrade":
 		value = fmt.Sprintf("%.2f", tr.Data.Quantity)
-		price = fmt.Sprintf("%.2f", tr.Data.Price)
+		price = fmt.Sprintf("%v", strconv.FormatFloat(tr.Data.Price, 'f', -1, 64))
 		switch tr.Data.IsMaker {
 		case true:
 			notice = "Large Maker"
@@ -468,10 +470,10 @@ func PrintTrade(t *tview.Table, stats map[string]Ticker, info map[string]Symbol,
 		SetStyle(color).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(true)
-	if conf.EnableMouse {
+	if Conf.EnableMouse {
 		cell.SetClickedFunc(func() bool {
 			asset := strings.Replace(symbol, "/", "_", 1)
-			browser.OpenURL(conf.BinanceTerminal + asset)
+			util.ShowWebTrade(asset)
 			return false
 		})
 	}
@@ -503,58 +505,111 @@ func PrintTrade(t *tview.Table, stats map[string]Ticker, info map[string]Symbol,
 }
 
 // DisplaySubscribeModal - Modal to subscribe to trades
-func DisplaySubscribeModal(tx chan<- string, pages *tview.Pages, s string) {
+func DisplaySubscribeModal(tx chan<- binance.SubChannelMsg, pages *tview.Pages, s string) {
 	// Find Quote Index
-	quoteindex:=0
-	if strings.Contains(s,"/") {
-		for i, v := range conf.Trades.Quotes {
+	quoteindex := 0
+	if strings.Contains(s, "/") {
+		for i, v := range Conf.Trades.Quotes {
 			if v == strings.Split(s, "/")[1] {
-				quoteindex=i
+				quoteindex = i
 				break
 			}
 		}
 	}
+
+	// Assemble buttons
+	var buttons []string
+	for _, k := range Conf.Trades.Quotes {
+		if strings.Split(s, "/")[0] != k {
+			buttons = append(buttons, k)
+		}
+	}
+	buttons = append(buttons, "Close")
+
+	// Define the Modal widget
 	subscribemodal := tview.NewModal().
-			SetText("Subscribe To Trades Feed\n\nChoose Quota Asset or Close\n"+strings.Split(s,"/")[0]+"\n").
-			AddButtons(append(conf.Trades.Quotes,"Close")).
-			SetFocus(quoteindex).
-			SetDoneFunc(func(index int, label string){
-				if label == "Close" {
-					pages.RemovePage("subscribemodal")
-				}else {
-					SubscribeToTrades(tx, s, label)
-					pages.RemovePage("subscribemodal")
-				}
-			})
+		SetText("Subscribe To Trades Feed\n\nChoose Quota Asset or Close\n" + strings.Split(s, "/")[0] + "\n").
+		AddButtons(buttons).
+		SetFocus(quoteindex).
+		SetDoneFunc(func(index int, label string) {
+			if label == "Close" {
+				pages.RemovePage("subscribemodal")
+			} else if label != "" {
+				util.SubscribeToTrades(tx, s, label)
+				pages.RemovePage("subscribemodal")
+			}
+			pages.RemovePage("subscribemodal")
+		})
 
 	pages.AddPage("subscribemodal",
 		subscribemodal,
-			false, true)
+		false, true)
 }
 
 // DisplaySubscribeInputForm - Input form to subscribe to arbitary pair
-func DisplaySubscribeInputForm(tx chan<- string, pages *tview.Pages ) {
+func DisplaySubscribeInputForm(tx chan<- binance.SubChannelMsg, pages *tview.Pages) {
 	form := tview.NewForm()
 	form.SetBorder(true).
 		SetTitle("Enter an asset to track").
 		SetTitleAlign(tview.AlignLeft)
-	form.AddInputField("Base Asset", "BTC",10, nil, nil).
-			AddButton("Subscribe", func() {
-				if s := form.GetFormItemByLabel("Base Asset").(*tview.InputField).GetText(); s != "" {
-					DisplaySubscribeModal(tx, pages, s)
-				}
-				pages.RemovePage("subscribeinput")
-			}).
-			AddButton("Cancel", func() {
-					pages.RemovePage("subscribeinput")
-			}).
-			SetCancelFunc(func(){
-					pages.RemovePage("subscribeinput")
-			})
+	form.AddInputField("Base Asset", "BTC", 10, nil, nil).
+		AddButton("Subscribe", func() {
+			if s := form.GetFormItemByLabel("Base Asset").(*tview.InputField).GetText(); s != "" {
+				DisplaySubscribeModal(tx, pages, s)
+			}
+			pages.RemovePage("subscribeinput")
+		}).
+		AddButton("Cancel", func() {
+			pages.RemovePage("subscribeinput")
+		}).
+		SetCancelFunc(func() {
+			pages.RemovePage("subscribeinput")
+		})
 
 	_, _, screenwidth, screenheight := pages.GetInnerRect()
-	form.SetRect((screenwidth-30)/2, (screenheight-10)/2,30,10)
-	pages.AddPage("subscribeinput",form, false, true)
+	textwidth, textheight := 28, 5 // Hardcoded size for now
+	form.SetRect((screenwidth-textwidth-2)/2, (screenheight-textheight-2)/2, textwidth+2, textheight+2)
+	pages.AddPage("subscribeinput", form, false, true)
+}
+
+// DisplayUnSubscribeModal - Modal to unsubscribe to selected trades
+func DisplayUnSubscribeModal(tx chan<- binance.SubChannelMsg, pages *tview.Pages, s string) {
+	modal := tview.NewModal().
+		SetText("Unsubscribe Pair From Trades Feed\n\n" + strings.Replace(s, "/", "", -1) + "\n").
+		AddButtons([]string{"Unsubscribe", "Close"}).
+		SetFocus(0).
+		SetDoneFunc(func(index int, label string) {
+			if label == "Unsubscribe" {
+				util.UnSubscribeFromTrades(tx, s)
+				pages.RemovePage("unsubscribemodal")
+			} else {
+				pages.RemovePage("unsubscribemodal")
+			}
+		})
+
+	pages.AddPage("unsubscribemodal",
+		modal,
+		false, true)
+}
+
+// DisplayUnSubscribeAllModal - Modal to unsubscribe from all trade feeds
+func DisplayUnSubscribeAllModal(tx chan<- binance.SubChannelMsg, pages *tview.Pages) {
+	modal := tview.NewModal().
+		SetText("Unsubscribe All Pairs From Trades Feed\n\n").
+		AddButtons([]string{"Unsubscribe", "Close"}).
+		SetFocus(0).
+		SetDoneFunc(func(index int, label string) {
+			if label == "Unsubscribe" {
+				util.UnSubscribeFromAllTrades(tx)
+				pages.RemovePage("unsubscribeallmodal")
+			} else {
+				pages.RemovePage("unsubscribeallmodal")
+			}
+		})
+
+	pages.AddPage("unsubscribeallmodal",
+		modal,
+		false, true)
 }
 
 // DisplayHelpModal - Help screen
@@ -563,15 +618,62 @@ func DisplayHelpModal(pages *tview.Pages) {
 	helpwidget.SetBorder(true).
 		SetTitle("Help").
 		SetTitleAlign(tview.AlignLeft)
-	helpwidget.SetText(messages["helpmodal"]).
-			SetDoneFunc(func(key tcell.Key){
-				pages.RemovePage("helpmodal")
-			})
+	helpwidget.SetText(data.Messages["helpmodal"]).
+		SetDoneFunc(func(key tcell.Key) {
+			pages.RemovePage("helpmodal")
+		})
 
 	_, _, screenwidth, screenheight := pages.GetInnerRect()
-	helpwidget.SetRect((screenwidth-60)/2, (screenheight-30)/2,60,20)
+	textwidth, textheight := GetTextRect(data.Messages["helpmodal"])
+	helpwidget.SetRect((screenwidth-textwidth-2)/2, (screenheight-textheight-2)/2, textwidth+2, textheight+2)
 
 	pages.AddPage("helpmodal",
 		helpwidget,
 		false, true)
+}
+
+// CheckTermSizeModal - Terminal Size Notification
+func CheckTermSizeModal(pages *tview.Pages) bool {
+	_, _, screenwidth, screenheight := pages.GetInnerRect()
+	if screenheight >= Mintermheight && screenwidth >= Mintermwidth {
+		return true
+	} else {
+
+		modal := tview.NewTextView()
+		modal.SetBorder(true).
+			SetTitle("Error").
+			SetTitleAlign(tview.AlignLeft)
+		modal.SetText(data.Messages["termsizemodal"]).
+			SetDoneFunc(func(key tcell.Key) {
+				pages.RemovePage("termsizemodal")
+			})
+		textwidth, textheight := GetTextRect(data.Messages["termsizemodal"])
+		modal.SetRect((screenwidth-textwidth-2)/2, (screenheight-textheight-2)/2, textwidth+2, textheight+2)
+
+		pages.AddPage("termsizemodal",
+			modal,
+			false, true)
+	}
+	return false
+}
+
+func GetTextRect(textblock string) (width, height int) {
+	width = 0
+	height = 0
+	w := 0
+	for _, c := range textblock {
+		w++
+		if c == '\n' {
+			if w > width {
+				width = w - 1
+			}
+			w = 0
+			height++
+		}
+	}
+	if height == 0 {
+		height = 1
+		width = len(textblock)
+	}
+	return width, height
 }

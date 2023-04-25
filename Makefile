@@ -3,7 +3,7 @@ SHELL := /bin/bash
 TARGET := $(shell echo $${PWD##*/})
 .DEFAULT_GOAL: $(TARGET)
 
-VERSION := 0.2
+VERSION := 0.3
 BUILD := `git rev-parse HEAD`
 CGO_ENABLED=0
 

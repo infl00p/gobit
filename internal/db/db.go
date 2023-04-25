@@ -1,6 +1,6 @@
 /*
 	Binance Intelligence Terminal in Go
-    Copyright (C) <2021> <infl00p Labs>
+    Copyright (C) <2021-2023> <infl00p Labs>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,19 +17,23 @@
 
 */
 
-package main
+package db
 
 import (
 	"database/sql"
+	"gobit/internal/binance"
+	. "gobit/internal/config"
+	"gobit/internal/data"
+
 	_ "github.com/mattn/go-sqlite3"
 
-	"os"
 	"log"
+	"os"
 	"time"
 )
 
 // InitDb - Inits the database, optionally creates the file
-func InitDb(path string) ( *sql.DB, error) {
+func InitDb(path string) ( eventdb *sql.DB, err error) {
 	rotatequery := ""
 	initeventsdbquery := "create table if not exists events(" +
 		"timestamp timestamp," +
@@ -52,21 +56,25 @@ func InitDb(path string) ( *sql.DB, error) {
 		"price float," +
 		"tradetimestamp timestamp," +
 		"ismaker boolean)"
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) || Conf.Db.InMemory {
 		log.Println("Initializing Database")
 	} else {
 		// rotate database to keep only recent (retention) data
 		log.Println("Rotating Database")
 		rotatequery = "delete from events where " +
 			"datetime(timestamp) < datetime('now','-" +
-			conf.Db.Retention + "'); delete from trades where " +
+			Conf.Db.Retention + "'); delete from trades where " +
 			"datetime(timestamp) < datetime('now','-" +
-			conf.Db.Retention + "')"
+			Conf.Db.Retention + "')"
 	}
 
 	// Database is stored inside the local cache folder
-	eventdb, err := sql.Open("sqlite3", path+"?cache=shared&mode=rwc&_busy_timeout=50000000")
+	if Conf.Db.InMemory {
+		eventdb, err = sql.Open("sqlite3", "file:gobit.db?cache=shared&mode=memory&_busy_timeout=50000000")
+	} else {
+		eventdb, err = sql.Open("sqlite3", path+"?cache=shared&mode=rwc&_busy_timeout=50000000")
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,13 +94,13 @@ func InitDb(path string) ( *sql.DB, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	eventdb.SetMaxOpenConns(3)
+	eventdb.SetMaxOpenConns(4)
 
-	return eventdb, err
+	return
 }
 
 // InsertDbEvent - Gets called when a new event comes
-func InsertDbEvent(ev Event, db *sql.DB) error {
+func InsertDbEvent(ev binance.Event, db *sql.DB) error {
 	st, err := db.Prepare("insert into events(" +
 		"timestamp," +
 		"eventtype," +
@@ -124,7 +132,7 @@ func InsertDbEvent(ev Event, db *sql.DB) error {
 }
 
 // InsertDbTrade - Inserts appropriate trade to db
-func InsertDbTrade(tr Trade, info map[string]Symbol, db *sql.DB) error {
+func InsertDbTrade(tr binance.Trade, info map[string]data.Symbol, db *sql.DB) error {
 	st, err := db.Prepare("insert into trades(" +
 		"timestamp," +
 		"eventtype," +
@@ -159,11 +167,11 @@ func AssetVolumeFrequency(baseasset string, db *sql.DB) float64 {
 	query := "select (select sum(volume) from events where baseasset ==\"" +
 		baseasset + "\" " +
 		"and datetime(timestamp) >= datetime('now','-" +
-		conf.Db.SamplePeriod + "'))" +
+		Conf.Db.SamplePeriod + "'))" +
 		"/(select sum(volume) from events where baseasset ==\"" +
 		baseasset + "\" " +
 		"and datetime(timestamp) >= datetime('now','-" +
-		conf.Db.Retention + "') " +
+		Conf.Db.Retention + "') " +
 		"group by baseasset having count()>10)"
 	err := db.QueryRow(query).Scan(&volfreq)
 	if err == sql.ErrNoRows || volfreq.Valid != true {
@@ -181,7 +189,7 @@ func AssetAvgVolume(baseasset string, db *sql.DB) float64 {
 	query := "select avg(volume) from events where baseasset ==\"" +
 		baseasset + "\" " +
 		"and datetime(timestamp) >= datetime('now','-" +
-		conf.Db.Retention + "')"
+		Conf.Db.Retention + "')"
 	err := db.QueryRow(query).Scan(&volavg)
 	if err == sql.ErrNoRows || volavg.Valid != true {
 		return 0
@@ -193,23 +201,24 @@ func AssetAvgVolume(baseasset string, db *sql.DB) float64 {
 }
 
 // AssetMomentum - Estimate and build momentum table
-func AssetMomentum(db *sql.DB) []AssetStat {
-	momentumtable := make([]AssetStat, 0)
+func AssetMomentum(db *sql.DB) []data.AssetStat {
+	momentumtable := make([]data.AssetStat, 0)
 
 	query := "select h.baseasset, " +
 		"count(t.baseasset)*(sum(distinct(t.volume))/sum(distinct(h.volume))) " +
 		"as momentum from events as h cross join events as t " +
 		"on h.baseasset == t.baseasset where " +
 		"datetime(h.timestamp) >= datetime('now','-" +
-		conf.Db.Retention + "')" +
+		Conf.Db.Retention + "')" +
 		"and datetime(t.timestamp) >= datetime('now','-" +
-		conf.Db.SamplePeriod + "')" +
+		Conf.Db.SamplePeriod + "')" +
 		"and t.noticetype == 'BLOCK_TRADE' and h.noticetype == 'BLOCK_TRADE' " +
 		"group by h.baseasset having count() > 5 order by momentum DESC limit 7;"
 
 	rows, err := db.Query(query)
 	if err == sql.ErrNoRows {
 		return nil
+
 	} else if err != nil {
 		log.Println("Error executing AssetMomentum query " + err.Error())
 		return nil
@@ -222,7 +231,11 @@ func AssetMomentum(db *sql.DB) []AssetStat {
 			break
 		}
 		volumeavg := AssetAvgVolume(name, db)
-		momentumtable = append(momentumtable, AssetStat{name, momentum.Float64, volumeavg})
+		momentumtable = append(momentumtable, data.AssetStat{
+			Name: name,
+			Momentum: momentum.Float64,
+			AvgVolume: volumeavg,
+		})
 	}
 	rows.Close()
 
